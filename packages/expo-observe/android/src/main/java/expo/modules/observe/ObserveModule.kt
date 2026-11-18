@@ -75,13 +75,24 @@ class ObserveModule : Module() {
         observabilityManager.scheduleBackgroundDispatch()
       }
 
-      Constant("clientId") {
+      // A property, not a constant, so it follows `setConsent`.
+      Property("clientId") {
         // Reading the ID creates it, so it stays unread without consent.
         if (ObserveConsent.isGranted) EASClientID(context).uuid.toString().lowercase() else null
       }
 
       AsyncFunction("setConsent") Coroutine { consent: ConsentValue ->
-        appMetricsModule.setConsent(consent == ConsentValue.GRANTED)
+        try {
+          appMetricsModule.setConsent(consent == ConsentValue.GRANTED)
+        } finally {
+          // Also when the save fails, because the revoke still applies. After the gate closes, so
+          // nothing saves the settings again.
+          if (consent == ConsentValue.NOT_GRANTED) {
+            ObservabilityBackgroundWorker.cancelBackgroundDispatch(context)
+            context.deleteDatabase(LEGACY_DATABASE_NAME)
+            ObservePreferences.deleteStoredSettings(context)
+          }
+        }
       }
 
       AsyncFunction("dispatchEvents") Coroutine { ->

@@ -89,6 +89,10 @@ class ObservabilityBackgroundWorker(
   companion object {
     private const val WORK_NAME = "eas-observe-dispatch"
 
+    fun cancelBackgroundDispatch(context: Context) {
+      WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+    }
+
     fun scheduleBackgroundDispatch(
       context: Context,
       projectId: String,

@@ -49,12 +49,20 @@ public final class ObserveModule: Module {
       }
     }
 
-    Constant("clientId") { () -> String? in
+    // A property, not a constant, so it follows `setConsent`.
+    Property("clientId") { () -> String? in
       // Reading the ID creates it, so it stays unread without consent.
       return ObserveConsent.isGranted ? EASClientID.uuid().uuidString.lowercased() : nil
     }
 
     AsyncFunction("setConsent") { (consent: ConsentValue) in
+      // Also when the save fails, because the revoke still applies. After the gate closes, so
+      // nothing saves the settings again.
+      defer {
+        if consent == .notGranted {
+          ObserveUserDefaults.deleteStoredSettings()
+        }
+      }
       try await AppMetrics.setConsent(granted: consent == .granted)
     }
 

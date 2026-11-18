@@ -2,6 +2,7 @@
 
 package expo.modules.appmetrics.networkrequests
 
+import expo.modules.appmetrics.ObserveConsent
 import java.lang.ref.WeakReference
 import java.util.Date
 import java.util.UUID
@@ -151,7 +152,8 @@ class NetworkRequestMonitor internal constructor(
       }
       // A live persistence writes this request below, so mark it now: a later install must not
       // drain it a second time, or every reload would duplicate whatever is still buffered.
-      if (this.persistence != null) {
+      // A request captured without consent is never written, even after a later grant.
+      if (this.persistence != null || !ObserveConsent.isGranted) {
         drainedRequestIds.add(request.id)
       }
       delegates.removeAll { it.get() == null }

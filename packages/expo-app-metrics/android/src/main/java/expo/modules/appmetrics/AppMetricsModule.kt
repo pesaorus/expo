@@ -497,6 +497,8 @@ class AppMetricsModule : Module(), UpdatesStateChangeListener {
         sessionManager.startSessionWithIdAt(mainSession.sessionId, mainSession.startDate, metadata)
         saveStartupMetrics()
         skipExitRecords(ExitInfoProviderImpl(context), PreferencesLastProcessedExitStore(context))
+      } else if (update.changed) {
+        deleteStoredData(context)
       }
       if (!update.isSaved) {
         throw ConsentNotSavedException(granted)
@@ -742,8 +744,8 @@ private class ConsentNotSavedException(granted: Boolean) : CodedException(
     "Observe could not save the consent value 'granted' on the device, so collection did not start. " +
       "The device storage may be full or unavailable. Free storage and call setConsent('granted') again."
   } else {
-    "Observe could not save the consent value 'not-granted' on the device. Collection stopped, but " +
-      "the next launch may read the earlier value. The device storage may be full or unavailable. " +
-      "Free storage and call setConsent('not-granted') again."
+    "Observe could not save the consent value 'not-granted' on the device. Collection stopped and " +
+      "the stored data was deleted, but the next launch may read the earlier value. The device " +
+      "storage may be full or unavailable. Free storage and call setConsent('not-granted') again."
   }
 )
