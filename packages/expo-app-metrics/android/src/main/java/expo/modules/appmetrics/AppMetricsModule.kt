@@ -56,6 +56,7 @@ import expo.modules.kotlin.types.OptimizedRecord
 import expo.modules.updatesinterface.UpdatesControllerRegistry
 import expo.modules.updatesinterface.UpdatesStateChangeListener
 import expo.modules.updatesinterface.UpdatesStateChangeSubscription
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -67,8 +68,14 @@ class AppMetricsModule : Module(), UpdatesStateChangeListener {
     get() = appContext.reactContext ?: throw Exceptions.ReactContextLost()
 
   // TODO(@lukmccall): Consider using appContext.backgroundCoroutineScope instead
-  private val scope: CoroutineScope
-    get() = appContext.modulesQueue
+  // A failed fire-and-forget write logs and drops instead of crashing the app.
+  private val scope: CoroutineScope by lazy {
+    CoroutineScope(
+      appContext.modulesQueue.coroutineContext + CoroutineExceptionHandler { _, error ->
+        Log.w(TAG, "[AppMetrics] Failed to store telemetry", error)
+      }
+    )
+  }
 
   lateinit var memoryMetricsManager: MemoryMetricsManager
   lateinit var updatesMonitoring: UpdatesMonitoring
@@ -291,6 +298,9 @@ class AppMetricsModule : Module(), UpdatesStateChangeListener {
         // The processor builds the reports; `attributeAndStoreCrashReport` owns
         // the session attribution and storage.
         scope.launch {
+          if (!ObserveConsent.isGranted) {
+            return@launch
+          }
           CrashReportProcessor(
             crashFileReader = CrashFileReader.forContext(context),
             exitInfoProvider = ExitInfoProviderImpl(context),
@@ -325,6 +335,9 @@ class AppMetricsModule : Module(), UpdatesStateChangeListener {
         // TODO(@ubax): move this drain and other resource-intensive startup work off the launch path
         // (e.g. into `markInteractive` or a background dispatch) so it doesn't affect startup time.
         scope.launch {
+          if (!ObserveConsent.isGranted) {
+            return@launch
+          }
           PendingErrorStore.drain(context).forEach { pendingError ->
             runCatching {
               sessionManager.addLogs(listOf(pendingError.toLogRecord()), sessionId = pendingError.sessionId)
@@ -492,6 +505,10 @@ class AppMetricsModule : Module(), UpdatesStateChangeListener {
   // The session waits for its row before inserting.
   private suspend fun saveStartupMetrics() =
     saveStartupMetricsMutex.withLock {
+      // Without consent the startup metrics stay in memory.
+      if (!ObserveConsent.isGranted) {
+        return@withLock
+      }
       val metrics = AppStartupManager.takeUnsavedMetrics()
       if (metrics.isNotEmpty()) {
         mainSession.addMetrics(metrics)

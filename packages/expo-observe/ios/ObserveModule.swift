@@ -39,8 +39,9 @@ public final class ObserveModule: Module {
       }
     }
 
-    Constant("clientId") {
-      EASClientID.uuid().uuidString.lowercased()
+    Constant("clientId") { () -> String? in
+      // Reading the ID creates it, so it stays unread without consent.
+      return ObserveConsent.isGranted ? EASClientID.uuid().uuidString.lowercased() : nil
     }
 
     AsyncFunction("dispatchEvents") {
