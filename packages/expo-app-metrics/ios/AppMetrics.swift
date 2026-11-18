@@ -77,6 +77,37 @@ public struct AppMetrics {
   // Make the initializer private to prevent non-singleton usage.
   private init() {}
 
+  /// Deletes the stored data while consent is not granted. Runs at launch.
+  static func deleteStoredData() {
+    guard let databaseDirectory = try? MetricsDatabase.defaultDirectoryUrl(),
+      let pendingErrorsDirectory = try? PendingErrorStore.directoryUrl()
+    else {
+      return
+    }
+    deleteStoredData(
+      isGranted: ObserveConsent.isGranted,
+      databaseDirectory: databaseDirectory,
+      pendingErrorsDirectory: pendingErrorsDirectory
+    )
+  }
+
+  /// Deletes the metrics database, the pending-error files, the legacy JSON file, and the settings,
+  /// only when consent is not granted.
+  static func deleteStoredData(isGranted: Bool, databaseDirectory: URL, pendingErrorsDirectory: URL) {
+    guard !isGranted else {
+      return
+    }
+    let databaseUrl = databaseDirectory.appendingPathComponent("metrics.db")
+    do {
+      try MetricsDatabase.removeDatabaseFile(at: databaseUrl)
+    } catch {
+      logger.warn("[AppMetrics] Failed to delete the metrics database: \(error.localizedDescription)")
+    }
+    try? FileManager.default.removeItem(at: pendingErrorsDirectory)
+    AppMetricsUserDefaults.deleteStoredSettings()
+    MetricsDatabase.cleanUpLegacyStorage()
+  }
+
   // MARK: - Read API for downstream consumers (e.g. expo-observe)
 
   /// Returns metric rows whose `id` is greater than `cursor`, in ascending id order. Consumers persist
