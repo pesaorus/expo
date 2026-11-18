@@ -72,6 +72,48 @@ struct ConsentGatedDefaultsTests {
   }
 }
 
+@Suite("ObserveConsent saved value")
+struct ObserveConsentSavedValueTests {
+  @Test
+  func `no saved value falls back to the app config`() throws {
+    try withTemporaryDirectory { directory in
+      #expect(ObserveConsent.readSavedState(at: directory.appendingPathComponent("observe-consent")) == nil)
+    }
+  }
+
+  @Test
+  func `the saved value round-trips`() throws {
+    try withTemporaryDirectory { directory in
+      let url = directory.appendingPathComponent("ExpoAppMetrics/observe-consent")
+
+      #expect(ObserveConsent.save(granted: false, to: url))
+      #expect(ObserveConsent.readSavedState(at: url) == .notGranted)
+
+      #expect(ObserveConsent.save(granted: true, to: url))
+      #expect(ObserveConsent.readSavedState(at: url) == .granted)
+    }
+  }
+
+  @Test
+  func `a save to an unwritable location fails`() throws {
+    try withTemporaryDirectory { directory in
+      // A file in place of the parent directory makes the save fail.
+      let file = directory.appendingPathComponent("ExpoAppMetrics")
+      try Data("x".utf8).write(to: file)
+
+      #expect(!ObserveConsent.save(granted: false, to: file.appendingPathComponent("observe-consent")))
+    }
+  }
+
+  @Test
+  func `an unreadable saved value makes consent unknown`() throws {
+    try withTemporaryDirectory { directory in
+      // A directory at the path fails the read with an error other than a missing file.
+      #expect(ObserveConsent.readSavedState(at: directory) == .unknown)
+    }
+  }
+}
+
 @Suite("AppMetrics.deleteStoredData", .serialized)
 struct DeleteStoredDataTests {
   @Test
@@ -93,7 +135,7 @@ struct DeleteStoredDataTests {
       settings.set("value", forKey: "deleteStoredDataTest")
 
       AppMetrics.deleteStoredData(
-        isGranted: false,
+        consent: .notGranted,
         databaseDirectory: databaseDirectory,
         pendingErrorsDirectory: pendingErrorsDirectory
       )
@@ -102,6 +144,22 @@ struct DeleteStoredDataTests {
         #expect(!FileManager.default.fileExists(atPath: file.path))
       }
       #expect(settings.object(forKey: "deleteStoredDataTest") == nil)
+    }
+  }
+
+  @Test
+  func `keeps the data when the saved value is unreadable`() throws {
+    try withTemporaryDirectory { directory in
+      let databaseFile = directory.appendingPathComponent("metrics.db")
+      let pendingErrorsDirectory = directory.appendingPathComponent("pending-errors")
+      try FileManager.default.createDirectory(at: pendingErrorsDirectory, withIntermediateDirectories: true)
+      try Data("x".utf8).write(to: databaseFile)
+      let consent = try #require(ObserveConsent.readSavedState(at: directory))
+
+      AppMetrics.deleteStoredData(consent: consent, databaseDirectory: directory, pendingErrorsDirectory: pendingErrorsDirectory)
+
+      #expect(FileManager.default.fileExists(atPath: databaseFile.path))
+      #expect(FileManager.default.fileExists(atPath: pendingErrorsDirectory.path))
     }
   }
 }

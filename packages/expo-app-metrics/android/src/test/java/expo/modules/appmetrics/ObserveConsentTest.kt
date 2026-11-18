@@ -26,25 +26,32 @@ class ObserveConsentTest {
 
   @Test
   fun `app config without the consent key grants consent`() {
-    assertTrue(ObserveConsent.resolve(null))
-    assertTrue(ObserveConsent.resolve("""{"extra":{"eas":{"projectId":"id"}}}"""))
-    assertTrue(ObserveConsent.resolve("not json"))
+    assertTrue(ObserveConsent.resolve(null, null))
+    assertTrue(ObserveConsent.resolve(null, """{"extra":{"eas":{"projectId":"id"}}}"""))
+    assertTrue(ObserveConsent.resolve(null, "not json"))
   }
 
   @Test
   fun `consent key granted grants consent`() {
-    assertTrue(ObserveConsent.resolve(appConfig("\"granted\"")))
+    assertTrue(ObserveConsent.resolve(null, appConfig("\"granted\"")))
   }
 
   @Test
   fun `consent key not-granted denies consent`() {
-    assertFalse(ObserveConsent.resolve(appConfig("\"not-granted\"")))
+    assertFalse(ObserveConsent.resolve(null, appConfig("\"not-granted\"")))
   }
 
   @Test
   fun `unknown consent value denies consent`() {
-    assertFalse(ObserveConsent.resolve(appConfig("\"pending\"")))
-    assertFalse(ObserveConsent.resolve(appConfig("false")))
+    assertFalse(ObserveConsent.resolve(null, appConfig("\"pending\"")))
+    assertFalse(ObserveConsent.resolve(null, appConfig("false")))
+  }
+
+  @Test
+  fun `saved value overrides the app config`() {
+    assertFalse(ObserveConsent.resolve("not-granted", appConfig("\"granted\"")))
+    assertTrue(ObserveConsent.resolve("granted", appConfig("\"not-granted\"")))
+    assertFalse(ObserveConsent.resolve("not-granted", null))
   }
 
   @Test

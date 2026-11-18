@@ -85,16 +85,16 @@ public struct AppMetrics {
       return
     }
     deleteStoredData(
-      isGranted: ObserveConsent.isGranted,
+      consent: ObserveConsent.state,
       databaseDirectory: databaseDirectory,
       pendingErrorsDirectory: pendingErrorsDirectory
     )
   }
 
   /// Deletes the metrics database, the pending-error files, the legacy JSON file, and the settings,
-  /// only when consent is not granted.
-  static func deleteStoredData(isGranted: Bool, databaseDirectory: URL, pendingErrorsDirectory: URL) {
-    guard !isGranted else {
+  /// only when `consent` is `.notGranted`.
+  static func deleteStoredData(consent: ObserveConsent.State, databaseDirectory: URL, pendingErrorsDirectory: URL) {
+    guard consent == .notGranted else {
       return
     }
     let databaseUrl = databaseDirectory.appendingPathComponent("metrics.db")
