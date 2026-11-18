@@ -3,9 +3,18 @@ package expo.modules.appmetrics
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import expo.modules.appmetrics.crashreporting.CrashFileFormat
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.unmockkAll
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -22,7 +31,19 @@ class ObserveConsentTest {
     context.getSharedPreferences("dev.expo.app-metrics", Context.MODE_PRIVATE).edit().clear().commit()
   }
 
+  // Restores the default gate for the next test class.
+  @After
+  fun tearDown() {
+    unmockkAll()
+    setUp()
+    ObserveConsent.load(context)
+  }
+
   private fun appConfig(consent: String) = """{"extra":{"eas":{"observe":{"consent":$consent}}}}"""
+
+  private fun settings() = context.getSharedPreferences("dev.expo.app-metrics", Context.MODE_PRIVATE)
+
+  private fun savedConsent(): String? = settings().getString("observeConsent", null)
 
   @Test
   fun `app config without the consent key grants consent`() {
@@ -52,6 +73,110 @@ class ObserveConsentTest {
     assertFalse(ObserveConsent.resolve("not-granted", appConfig("\"granted\"")))
     assertTrue(ObserveConsent.resolve("granted", appConfig("\"not-granted\"")))
     assertFalse(ObserveConsent.resolve("not-granted", null))
+  }
+
+  @Test
+  fun `load reads the saved value`() {
+    ObserveConsent.update(context, granted = false)
+
+    ObserveConsent.load(context)
+
+    assertFalse(ObserveConsent.isGranted)
+  }
+
+  @Test
+  fun `update saves the value and changes the gate`() {
+    ObserveConsent.load(context)
+
+    assertFalse(ObserveConsent.update(context, granted = true).changed)
+    assertEquals("granted", savedConsent())
+    assertTrue(ObserveConsent.isGranted)
+
+    assertTrue(ObserveConsent.update(context, granted = false).changed)
+    assertEquals("not-granted", savedConsent())
+    assertFalse(ObserveConsent.isGranted)
+
+    assertFalse(ObserveConsent.update(context, granted = false).changed)
+  }
+
+  @Test
+  fun `a grant after a revoke only saves the value until the next launch`() {
+    ObserveConsent.update(context, granted = false)
+    ObserveConsent.load(context)
+
+    assertTrue(ObserveConsent.update(context, granted = true).changed)
+    assertTrue(ObserveConsent.update(context, granted = false).changed)
+    assertFalse(ObserveConsent.update(context, granted = true).changed)
+    assertEquals("granted", savedConsent())
+    assertFalse(ObserveConsent.isGranted)
+
+    ObserveConsent.load(context)
+    assertTrue(ObserveConsent.isGranted)
+  }
+
+  @Test
+  fun `a failed save still revokes, and a grant changes nothing`() {
+    // A relaxed mock returns `false` from `commit()`.
+    val unsaved = mockk<Context>(relaxed = true)
+    ObserveConsent.load(context)
+
+    assertEquals(ObserveConsent.Update(changed = true, isSaved = false), ObserveConsent.update(unsaved, granted = false))
+    assertFalse(ObserveConsent.isGranted)
+
+    ObserveConsent.update(context, granted = false)
+    ObserveConsent.load(context)
+    assertEquals(ObserveConsent.Update(changed = false, isSaved = false), ObserveConsent.update(unsaved, granted = true))
+    assertFalse(ObserveConsent.isGranted)
+  }
+
+  // Pauses the "setter" thread after its first gate read and runs `transition` on another thread in
+  // that gap. Resumes the setter once the transition finished or waits for the gate lock.
+  private fun runInSetterGap(setter: () -> Unit, transition: () -> Unit) {
+    val checked = CountDownLatch(1)
+    val resume = CountDownLatch(1)
+    mockkObject(ObserveConsent)
+    every { ObserveConsent.isGranted } answers {
+      val isGranted = callOriginal()
+      if (Thread.currentThread().name == "setter" && checked.count > 0) {
+        checked.countDown()
+        resume.await(5, TimeUnit.SECONDS)
+      }
+      isGranted
+    }
+    val setterThread = thread(name = "setter") { setter() }
+    assertTrue(checked.await(5, TimeUnit.SECONDS))
+    val transitionThread = thread { transition() }
+    while (transitionThread.isAlive && transitionThread.state != Thread.State.BLOCKED) {
+      Thread.sleep(1)
+    }
+    resume.countDown()
+    setterThread.join()
+    transitionThread.join()
+  }
+
+  @Test
+  fun `a setter that reads the gate before a revoke saves nothing`() {
+    ObserveConsent.load(context)
+
+    runInSetterGap(
+      setter = { AppMetricsPreferences.setEnvironment(context, "set-during-revoke") },
+      transition = {
+        ObserveConsent.update(context, granted = false)
+        deleteStoredData(context)
+      }
+    )
+
+    assertEquals(mapOf("observeConsent" to "not-granted"), settings().all)
+  }
+
+  @Test
+  fun `deleteStoredData keeps the consent value`() {
+    ObserveConsent.update(context, granted = false)
+    settings().edit().putString("environment", "production").commit()
+
+    deleteStoredData(context)
+
+    assertEquals(mapOf("observeConsent" to "not-granted"), settings().all)
   }
 
   @Test
