@@ -1,5 +1,11 @@
 # Changelog
 
+## 58.0.20
+
+### Patch Changes
+
+- Send at most 128 attributes for each log event, and keep the `expo.*` attributes first, so the server does not drop them. ([#53615](https://github.com/expo/expo/pull/53615) by [@Ubax](https://github.com/Ubax))
+
 ## 58.0.19
 
 ### Patch Changes
