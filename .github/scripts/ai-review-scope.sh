@@ -4,7 +4,9 @@
 # routing.jsonc is the one list of autonomous review paths. Run this from a checkout
 # of the base branch, so a PR cannot change the list it is checked against.
 #
-# Env: GH_TOKEN, REPO, PR. Writes autonomous=true|false to $GITHUB_OUTPUT.
+# Env: GH_TOKEN, REPO, PR. Writes to $GITHUB_OUTPUT:
+#   autonomous=true|false       some changed file is in the scope
+#   only_autonomous=true|false  every changed file is in the scope
 # It does not fail: if it cannot read the scope or the files, it writes false.
 set -euo pipefail
 
@@ -39,10 +41,15 @@ if [ "${#globs[@]}" -eq 0 ]; then
 fi
 files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename' || true)
 autonomous=false
+only_autonomous=false
+[ -z "$files" ] || [ "${#globs[@]}" -eq 0 ] || only_autonomous=true
 while IFS= read -r file; do
-  if [ -n "$file" ] && in_scope "$file"; then
+  [ -n "$file" ] || continue
+  if in_scope "$file"; then
     autonomous=true
-    break
+  else
+    only_autonomous=false
   fi
 done <<< "$files"
 echo "autonomous=$autonomous" >> "$GITHUB_OUTPUT"
+echo "only_autonomous=$only_autonomous" >> "$GITHUB_OUTPUT"
