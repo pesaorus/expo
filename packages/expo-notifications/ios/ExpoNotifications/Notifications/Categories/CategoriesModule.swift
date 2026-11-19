@@ -28,12 +28,20 @@ actor CategoryManager {
     return exists
   }
 
-  func setCategories(_ categories: [CategoryRecord], replacing replaces: @Sendable (String) -> Bool) async throws {
+  func setCategories(
+    _ categories: [CategoryRecord],
+    merging merge: (@Sendable (Set<UNNotificationCategory>, Set<UNNotificationCategory>) -> Set<UNNotificationCategory>)? = nil
+  ) async throws {
     guard Set(categories.map { Array($0.identifier.utf16) }).count == categories.count else {
       throw Exception(name: "DuplicateCategoryIdentifier", description: "Could not replace notification categories because identifiers are duplicated. Use a unique identifier for each category.")
     }
-    let kept = await loadCategories().filter { !replaces($0.identifier) }
-    updateCategories(kept.union(categories.map { $0.toUNNotificationCategory() }))
+    let incoming = Set(categories.map { $0.toUNNotificationCategory() })
+    if let merge {
+      let current = await loadCategories()
+      updateCategories(merge(current, incoming))
+    } else {
+      updateCategories(incoming)
+    }
   }
 
   private func loadCategories() async -> Set<UNNotificationCategory> {
@@ -83,14 +91,14 @@ open class CategoriesModule: Module {
   }
 
   open func setNotificationCategoriesAsync(categories: [CategoryRecord]) async throws {
-    try await replaceNotificationCategories(categories) { _ in true }
+    try await categoryManager.setCategories(categories)
   }
 
-  public final func replaceNotificationCategories(
+  public final func updateNotificationCategories(
     _ categories: [CategoryRecord],
-    replacing replaces: @Sendable (String) -> Bool
+    merging merge: @escaping @Sendable (Set<UNNotificationCategory>, Set<UNNotificationCategory>) -> Set<UNNotificationCategory>
   ) async throws {
-    try await categoryManager.setCategories(categories, replacing: replaces)
+    try await categoryManager.setCategories(categories, merging: merge)
   }
 
   open func setNotificationCategoryAsync(identifier: String, actions: [CategoryActionRecord], options: CategoryOptionsRecord?) async -> CategoryRecord {
